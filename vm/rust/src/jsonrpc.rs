@@ -16,7 +16,7 @@ use starknet_api::hash::StarkFelt;
 use starknet_api::transaction::{Calldata, EventContent, L2ToL1Payload};
 use starknet_api::transaction::{DeclareTransaction, Transaction as StarknetApiTransaction};
 
-use crate::juno_state_reader::JunoStateReader;
+use crate::juno_state::JunoState;
 
 #[derive(Serialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
@@ -124,7 +124,7 @@ type BlockifierTxInfo = blockifier::transaction::objects::TransactionExecutionIn
 pub fn new_transaction_trace(
     tx: &StarknetApiTransaction,
     info: BlockifierTxInfo,
-    state: &mut TransactionalState<JunoStateReader>,
+    state: &mut TransactionalState<JunoState>,
 ) -> Result<TransactionTrace, StateError> {
     let mut trace = TransactionTrace::default();
     let mut deprecated_declared_class: Option<ClassHash> = None;
@@ -327,7 +327,7 @@ impl From<OrderedL2ToL1Message> for OrderedMessage {
 pub struct Retdata(pub Vec<StarkFelt>);
 
 fn make_state_diff(
-    state: &mut TransactionalState<JunoStateReader>,
+    state: &mut TransactionalState<JunoState>,
     deprecated_declared_class: Option<ClassHash>,
 ) -> Result<StateDiff, StateError> {
     let diff = state.to_state_diff();

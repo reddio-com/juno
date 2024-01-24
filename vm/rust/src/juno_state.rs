@@ -10,7 +10,10 @@ use blockifier::{
     execution::contract_class::{ContractClassV0, ContractClassV1},
     state::state_api::{StateReader, StateResult},
 };
+use blockifier::state::cached_state::CommitmentStateDiff;
+use blockifier::state::state_api::State;
 use cached::{Cached, SizedCache};
+use cairo_lang_starknet::casm_contract_class::CasmContractClass;
 use once_cell::sync::Lazy;
 use starknet_api::core::{ClassHash, CompiledClassHash, ContractAddress, Nonce};
 use starknet_api::hash::StarkFelt;
@@ -44,18 +47,18 @@ struct CachedContractClass {
 static CLASS_CACHE: Lazy<Mutex<SizedCache<ClassHash, CachedContractClass>>> =
     Lazy::new(|| Mutex::new(SizedCache::with_size(128)));
 
-pub struct JunoStateReader {
+pub struct JunoState {
     pub handle: usize, // uintptr_t equivalent
     pub height: u64,
 }
 
-impl JunoStateReader {
+impl JunoState {
     pub fn new(handle: usize, height: u64) -> Self {
         Self { handle, height }
     }
 }
 
-impl StateReader for JunoStateReader {
+impl StateReader for JunoState {
     fn get_storage_at(
         &mut self,
         contract_address: ContractAddress,
@@ -170,6 +173,32 @@ impl StateReader for JunoStateReader {
         &mut self,
         _class_hash: ClassHash,
     ) -> StateResult<CompiledClassHash> {
+        unimplemented!()
+    }
+}
+
+impl State for JunoState {
+    fn set_storage_at(&mut self, contract_address: ContractAddress, key: StorageKey, value: StarkFelt) {
+
+    }
+
+    fn increment_nonce(&mut self, contract_address: ContractAddress) -> StateResult<()> {
+        todo!("no increment nonce")
+    }
+
+    fn set_class_hash_at(&mut self, contract_address: ContractAddress, class_hash: ClassHash) -> StateResult<()> {
+        todo!()
+    }
+
+    fn set_contract_class(&mut self, class_hash: &ClassHash, contract_class: ContractClass) -> StateResult<()> {
+        let casm = CasmContractClass::from_contract_class(contract_class.into(), false)?;
+    }
+
+    fn set_compiled_class_hash(&mut self, class_hash: ClassHash, compiled_class_hash: CompiledClassHash) -> StateResult<()> {
+        todo!()
+    }
+
+    fn to_state_diff(&mut self) -> CommitmentStateDiff {
         unimplemented!()
     }
 }

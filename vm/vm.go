@@ -52,7 +52,7 @@ func New(log utils.SimpleLogger) VM {
 // callContext manages the context that a Call instance executes on
 type callContext struct {
 	// state that the call is running on
-	state core.StateReader
+	state *core.State
 	log   utils.SimpleLogger
 	// err field to be possibly populated in case of an error in execution
 	err string
@@ -114,7 +114,7 @@ func (v *vm) Call(contractAddr, classHash, selector *felt.Felt, calldata []felt.
 	blockTimestamp uint64, state core.StateReader, network *utils.Network, maxSteps uint64,
 ) ([]*felt.Felt, error) {
 	context := &callContext{
-		state:    state,
+		state:    state.(*core.State),
 		response: []*felt.Felt{},
 		log:      v.log,
 	}
@@ -169,7 +169,7 @@ func (v *vm) Execute(txns []core.Transaction, declaredClasses []core.Class, bloc
 	skipChargeFee, skipValidate, errOnRevert bool, gasPriceWEI *felt.Felt, gasPriceSTRK *felt.Felt, legacyTraceJSON bool,
 ) ([]*felt.Felt, []TransactionTrace, error) {
 	context := &callContext{
-		state: state,
+		state: state.(*core.State),
 		log:   v.log,
 	}
 	handle := cgo.NewHandle(context)

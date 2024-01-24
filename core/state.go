@@ -54,6 +54,60 @@ func NewState(txn db.Transaction) *State {
 	}
 }
 
+func (s *State) SetContractClass(classHash *felt.Felt, class Class, blockNum uint64) error {
+	return s.putClass(classHash, class, blockNum)
+}
+
+func (s *State) SetStorage(addr, key felt.Felt, value *felt.Felt, blockNum uint64) error {
+	stateTrie, closer, err := s.storage()
+	if err != nil {
+		return err
+	}
+	err = s.updateContractStorages(stateTrie, map[felt.Felt]map[felt.Felt]*felt.Felt{addr: {key: value}}, blockNum, false)
+	if err != nil {
+		return err
+	}
+	return closer()
+}
+
+func (s *State) SetNonce(addr, nonce *felt.Felt, blockNum uint64) error {
+	stateTrie, closer, err := s.storage()
+	if err != nil {
+		return err
+	}
+	_, err = s.updateContractNonce(stateTrie, addr, nonce)
+	if err != nil {
+		return err
+	}
+	return closer()
+}
+
+func (s *State) SetClassHashAt(addr, classHash *felt.Felt, blockNum uint64) error {
+	stateTrie, closer, err := s.storage()
+	if err != nil {
+		return err
+	}
+	err = s.putNewContract(stateTrie, addr, classHash, blockNum)
+	if err != nil {
+		return err
+	}
+	return closer()
+}
+
+func (s *State) SetCompiledClassHash(classHash, compiledClassHash *felt.Felt, blockNum uint64) error {
+	classTrie, closer, err := s.classesTrie()
+	if err != nil {
+		return err
+	}
+
+	leafValue := crypto.Poseidon(leafVersion, compiledClassHash)
+	_, err = classTrie.Put(classHash, leafValue)
+	if err != nil {
+		return err
+	}
+	return closer()
+}
+
 // putNewContract creates a contract storage instance in the state and stores the relation between contract address and class hash to be
 // queried later with [GetContractClass].
 func (s *State) putNewContract(stateTrie *trie.Trie, addr, classHash *felt.Felt, blockNumber uint64) error {

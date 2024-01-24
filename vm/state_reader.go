@@ -90,3 +90,51 @@ func JunoStateGetCompiledClass(readerHandle C.uintptr_t, classHash unsafe.Pointe
 
 	return unsafe.Pointer(cstring(compiledClass))
 }
+
+//export JunoStateSetContractClass
+func JunoStateSetContractClass(handle C.uintptr_t, classHash, class unsafe.Pointer) {
+	ctx := unwrapContext(handle)
+	classHashFelt := makeFeltFromPtr(classHash)
+}
+
+//export JunoStateSetStorage
+func JunoStateSetStorage(handle C.uintptr_t, addr, key, value unsafe.Pointer) {
+	ctx := unwrapContext(handle)
+	addrFelt := makeFeltFromPtr(addr)
+	keyFelt := makeFeltFromPtr(key)
+	valueFelt := makeFeltFromPtr(value)
+	err := ctx.state.SetStorage(*addrFelt, *keyFelt, valueFelt, 0)
+	if err != nil {
+		ctx.log.Errorw("JunoStateSetStorage failed to set storage", "err", err)
+	}
+}
+
+//export JunoStateSetNonce
+func JunoStateSetNonce(handle C.uintptr_t, addr, nonce unsafe.Pointer) {
+	ctx := unwrapContext(handle)
+	addrFelt := makeFeltFromPtr(addr)
+	nonceAddr := makeFeltFromPtr(nonce)
+
+}
+
+//export JunoStateSetClassHashAt
+func JunoStateSetClassHashAt(handle C.uintptr_t, addr, classHash unsafe.Pointer) {
+	ctx := unwrapContext(handle)
+	addrFelt := makeFeltFromPtr(addr)
+	classHashFelt := makeFeltFromPtr(classHash)
+	err := ctx.state.SetClassHashAt(addrFelt, classHashFelt, 0)
+	if err != nil {
+		ctx.log.Errorw("JunoStateSetClassHashAt failed to set class hash at contract addr", "err", err)
+	}
+}
+
+//export JunoStateSetCompiledClassHash
+func JunoStateSetCompiledClassHash(handle C.uintptr_t, classHash, compiledClassHash unsafe.Pointer) {
+	ctx := unwrapContext(handle)
+	classHashFelt := makeFeltFromPtr(classHash)
+	compClassHash := makeFeltFromPtr(compiledClassHash)
+	err := ctx.state.SetCompiledClassHash(classHashFelt, compClassHash, 0)
+	if err != nil {
+		ctx.log.Errorw("JunoStateSetCompiledClassHash failed to set compiled class hash", "err", err)
+	}
+}
