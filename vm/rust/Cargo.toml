@@ -20,5 +20,7 @@ cairo-lang-runner = "=2.4.0"
 cairo-lang-starknet = "=2.4.0"
 cairo-lang-utils = "=2.4.0"
 
+pallet-starknet = { git = "https://github.com/keep-starknet-strange/madara.git", version = "0.6.0"}
+
 [lib]
 crate-type = ["staticlib"]
