@@ -19,6 +19,7 @@ use blockifier::{
     fee::fee_utils::calculate_tx_fee,
     state::cached_state::{CachedState, GlobalContractCache},
     transaction::{
+        account_transaction::AccountTransaction::{Declare, DeployAccount, Invoke},
         objects::{AccountTransactionContext, DeprecatedAccountTransactionContext, HasRelatedFeeType},
         transaction_execution::Transaction,
         transactions::ExecutableTransaction,
@@ -29,6 +30,7 @@ use blockifier::{
         },
     },
 };
+use blockifier::transaction::transactions::Executable;
 use cairo_vm::vm::runners::builtin_runner::{
     BITWISE_BUILTIN_NAME, EC_OP_BUILTIN_NAME, HASH_BUILTIN_NAME, KECCAK_BUILTIN_NAME,
     OUTPUT_BUILTIN_NAME, POSEIDON_BUILTIN_NAME, RANGE_CHECK_BUILTIN_NAME,
@@ -47,6 +49,8 @@ use starknet_api::{
     core::{ChainId, ClassHash, ContractAddress, EntryPointSelector},
     hash::StarkHash,
 };
+use pallet_starknet::blockifier_state_adapter::BlockifierStateAdapter;
+use pallet_starknet::Config;
 
 extern "C" {
     fn JunoReportError(reader_handle: usize, txnIndex: c_longlong, err: *const c_char);
@@ -58,7 +62,7 @@ extern "C" {
 const N_STEPS_FEE_WEIGHT: f64 = 0.005;
 
 #[no_mangle]
-pub extern "C" fn cairoVMCall(
+pub extern "C" fn cairoVMCall<T: Config>(
     contract_address: *const c_uchar,
     class_hash: *const c_uchar,
     entry_point_selector: *const c_uchar,
@@ -70,7 +74,7 @@ pub extern "C" fn cairoVMCall(
     chain_id: *const c_char,
     max_steps: c_ulonglong,
 ) {
-    let reader = JunoStateReader::new(reader_handle, block_number);
+    let mut madara_state = BlockifierStateAdapter::<T>::default();
     let contract_addr_felt = ptr_to_felt(contract_address);
     let class_hash = if class_hash.is_null() {
         None
@@ -105,7 +109,7 @@ pub extern "C" fn cairoVMCall(
         eth_l1_gas_price: 1,
         strk_l1_gas_price: 1,
     };
-    let mut state = CachedState::new(reader, GlobalContractCache::default());
+    // let mut state = CachedState::new(madara_state, GlobalContractCache::default());
     let mut resources = ExecutionResources::default();
     let context = EntryPointExecutionContext::new(
         &build_block_context(
@@ -124,7 +128,7 @@ pub extern "C" fn cairoVMCall(
         report_error(reader_handle, e.to_string().as_str(), -1);
         return;
     }
-    match entry_point.execute(&mut state, &mut resources, &mut context.unwrap()) {
+    match entry_point.execute(&mut madara_state, &mut resources, &mut context.unwrap()) {
         Err(e) => report_error(reader_handle, e.to_string().as_str(), -1),
         Ok(t) => {
             for data in t.execution.retdata.0 {
@@ -144,7 +148,7 @@ pub struct TxnAndQueryBit {
 }
 
 #[no_mangle]
-pub extern "C" fn cairoVMExecute(
+pub extern "C" fn cairoVMExecute<T: Config>(
     txns_json: *const c_char,
     classes_json: *const c_char,
     reader_handle: usize,
@@ -160,7 +164,7 @@ pub extern "C" fn cairoVMExecute(
     gas_price_strk: *const c_uchar,
     legacy_json: c_uchar,
 ) {
-    let reader = JunoStateReader::new(reader_handle, block_number);
+    let mut madara_state = BlockifierStateAdapter::<T>::default();
     let chain_id_str = unsafe { CStr::from_ptr(chain_id) }.to_str().unwrap();
     let txn_json_str = unsafe { CStr::from_ptr(txns_json) }.to_str().unwrap();
     let txns_and_query_bits: Result<Vec<TxnAndQueryBit>, serde_json::Error> =
@@ -208,7 +212,7 @@ pub extern "C" fn cairoVMExecute(
         },
         None
     );
-    let mut state = CachedState::new(reader, GlobalContractCache::default());
+    // let mut state = CachedState::new(madara_state, GlobalContractCache::default());
     let charge_fee = skip_charge_fee == 0;
     let validate = skip_validate == 0;
 
@@ -256,16 +260,32 @@ pub extern "C" fn cairoVMExecute(
             return;
         }
 
-        let mut txn_state = CachedState::create_transactional(&mut state);
+        let mut txn_state = CachedState::create_transactional(&mut madara_state);
         let fee_type;
+        let mut resources = ExecutionResources::default();
+        let mut remaining_gas = Transaction::initial_gas();
+        let mut execution_context;
+
         let res = match txn.unwrap() {
             Transaction::AccountTransaction(t) => {
                 fee_type = t.fee_type();
-                t.execute(&mut txn_state, &block_context, charge_fee, validate)
+                let account_tx_context = t.get_account_tx_context();
+                execution_context =
+                    EntryPointExecutionContext::new_invoke(&block_context, &account_tx_context, charge_fee).unwrap();
+                match t {
+                    Declare(tx) => tx.run_execute(&mut txn_state, &mut resources, &mut execution_context, &mut remaining_gas),
+                    DeployAccount(tx) => tx.run_execute(&mut txn_state, &mut resources, &mut execution_context, &mut remaining_gas),
+                    Invoke(tx) => tx.run_execute(&mut txn_state, &mut resources, &mut execution_context, &mut remaining_gas),
+                }
+                // t.execute(&mut txn_state, &block_context, charge_fee, validate)
             }
             Transaction::L1HandlerTransaction(t) => {
                 fee_type = t.fee_type();
-                t.execute(&mut txn_state, &block_context, charge_fee, validate)
+                let account_tx_context = t.get_account_tx_context();
+                execution_context =
+                    EntryPointExecutionContext::new_invoke(&block_context, &account_tx_context, charge_fee).unwrap();
+
+                t.run_execute(&mut txn_state, &mut resources, &mut execution_context, &mut remaining_gas)
             }
         };
 
@@ -290,24 +310,32 @@ pub extern "C" fn cairoVMExecute(
                 return;
             }
             Ok(mut t) => {
-                if t.is_reverted() && err_on_revert != 0 {
-                    report_error(
-                        reader_handle,
-                        format!("reverted: {}", t.revert_error.unwrap())
-                        .as_str(),
-                        txn_index as i64
-                    );
-                    return;
-                }
+                // if t.is_reverted() && err_on_revert != 0 {
+                //     report_error(
+                //         reader_handle,
+                //         format!("reverted: {}", t.revert_error.unwrap())
+                //         .as_str(),
+                //         txn_index as i64
+                //     );
+                //     return;
+                // }
 
                 // we are estimating fee, override actual fee calculation
-                if !charge_fee {
-                    t.actual_fee = calculate_tx_fee(&t.actual_resources, &block_context, &fee_type).unwrap();
-                }
+                // if !charge_fee {
+                //     t.actual_fee = calculate_tx_fee(&t.actual_resources, &block_context, &fee_type).unwrap();
+                // }
 
-                let actual_fee = t.actual_fee.0.into();
+                // let actual_fee = t.actual_fee.0.into();
+                let info: jsonrpc::BlockifierTxInfo = jsonrpc::BlockifierTxInfo{
+                    validate_call_info: None,
+                    execute_call_info: t,
+                    fee_transfer_call_info: None,
+                    actual_fee: Default::default(),
+                    actual_resources: Default::default(),
+                    revert_error: None,
+                };
                 let mut trace =
-                    jsonrpc::new_transaction_trace(&txn_and_query_bit.txn, t, &mut txn_state);
+                    jsonrpc::new_transaction_trace(&txn_and_query_bit.txn, info, &mut txn_state);
                 if trace.is_err() {
                     report_error(
                         reader_handle,
@@ -321,9 +349,9 @@ pub extern "C" fn cairoVMExecute(
                     return;
                 }
 
-                unsafe {
-                    JunoAppendActualFee(reader_handle, felt_to_byte_array(&actual_fee).as_ptr());
-                }
+                // unsafe {
+                //     JunoAppendActualFee(reader_handle, felt_to_byte_array(&actual_fee).as_ptr());
+                // }
                 if legacy_json == 1 {
                     trace.as_mut().unwrap().make_legacy()
                 }

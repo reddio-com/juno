@@ -120,7 +120,7 @@ pub enum ExecuteInvocation {
     Revert { revert_reason: String },
 }
 
-type BlockifierTxInfo = blockifier::transaction::objects::TransactionExecutionInfo;
+pub type BlockifierTxInfo = blockifier::transaction::objects::TransactionExecutionInfo;
 pub fn new_transaction_trace(
     tx: &StarknetApiTransaction,
     info: BlockifierTxInfo,
