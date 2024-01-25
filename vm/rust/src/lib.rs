@@ -1,5 +1,6 @@
 pub mod jsonrpc;
 mod juno_state_reader;
+mod mem_state;
 
 use crate::juno_state_reader::{ptr_to_felt, JunoStateReader};
 use std::{
