@@ -1,28 +1,27 @@
 use blockifier;
-use blockifier::execution::entry_point::CallType;
 use blockifier::execution::call_info::OrderedL2ToL1Message;
-use cairo_vm::vm::runners::builtin_runner::{
-    BITWISE_BUILTIN_NAME, EC_OP_BUILTIN_NAME, HASH_BUILTIN_NAME,
-    POSEIDON_BUILTIN_NAME, RANGE_CHECK_BUILTIN_NAME, SIGNATURE_BUILTIN_NAME, KECCAK_BUILTIN_NAME,
-    SEGMENT_ARENA_BUILTIN_NAME,
-};
+use blockifier::execution::entry_point::CallType;
 use blockifier::state::cached_state::TransactionalState;
 use blockifier::state::errors::StateError;
 use blockifier::state::state_api::{State, StateReader};
+use cairo_vm::vm::runners::builtin_runner::{
+    BITWISE_BUILTIN_NAME, EC_OP_BUILTIN_NAME, HASH_BUILTIN_NAME, KECCAK_BUILTIN_NAME,
+    POSEIDON_BUILTIN_NAME, RANGE_CHECK_BUILTIN_NAME, SEGMENT_ARENA_BUILTIN_NAME,
+    SIGNATURE_BUILTIN_NAME,
+};
 use serde::Serialize;
-use starknet_api::core::{ClassHash, ContractAddress, EntryPointSelector, PatriciaKey, EthAddress};
+use starknet_api::core::{ClassHash, ContractAddress, EntryPointSelector, EthAddress, PatriciaKey};
 use starknet_api::deprecated_contract_class::EntryPointType;
 use starknet_api::hash::StarkFelt;
 use starknet_api::transaction::{Calldata, EventContent, L2ToL1Payload};
 use starknet_api::transaction::{DeclareTransaction, Transaction as StarknetApiTransaction};
 
-use crate::juno_state_reader::JunoStateReader;
-
 #[derive(Serialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum TransactionType {
     // dummy type for implementing Default trait
-    #[default] Unknown,
+    #[default]
+    Unknown,
     Invoke,
     Declare,
     #[serde(rename = "DEPLOY_ACCOUNT")]
@@ -124,7 +123,7 @@ type BlockifierTxInfo = blockifier::transaction::objects::TransactionExecutionIn
 pub fn new_transaction_trace(
     tx: &StarknetApiTransaction,
     info: BlockifierTxInfo,
-    state: &mut TransactionalState<JunoStateReader>,
+    state: &mut TransactionalState<MemState>,
 ) -> Result<TransactionTrace, StateError> {
     let mut trace = TransactionTrace::default();
     let mut deprecated_declared_class: Option<ClassHash> = None;
@@ -225,14 +224,38 @@ impl From<VmExecutionResources> for ExecutionResources {
             } else {
                 None
             },
-            range_check_builtin_applications: val.builtin_instance_counter.get(RANGE_CHECK_BUILTIN_NAME).cloned(),
-            pedersen_builtin_applications: val.builtin_instance_counter.get(HASH_BUILTIN_NAME).cloned(),
-            poseidon_builtin_applications: val.builtin_instance_counter.get(POSEIDON_BUILTIN_NAME).cloned(),
-            ec_op_builtin_applications: val.builtin_instance_counter.get(EC_OP_BUILTIN_NAME).cloned(),
-            ecdsa_builtin_applications: val.builtin_instance_counter.get(SIGNATURE_BUILTIN_NAME).cloned(),
-            bitwise_builtin_applications: val.builtin_instance_counter.get(BITWISE_BUILTIN_NAME).cloned(),
-            keccak_builtin_applications: val.builtin_instance_counter.get(KECCAK_BUILTIN_NAME).cloned(),
-            segment_arena_builtin: val.builtin_instance_counter.get(SEGMENT_ARENA_BUILTIN_NAME).cloned(),
+            range_check_builtin_applications: val
+                .builtin_instance_counter
+                .get(RANGE_CHECK_BUILTIN_NAME)
+                .cloned(),
+            pedersen_builtin_applications: val
+                .builtin_instance_counter
+                .get(HASH_BUILTIN_NAME)
+                .cloned(),
+            poseidon_builtin_applications: val
+                .builtin_instance_counter
+                .get(POSEIDON_BUILTIN_NAME)
+                .cloned(),
+            ec_op_builtin_applications: val
+                .builtin_instance_counter
+                .get(EC_OP_BUILTIN_NAME)
+                .cloned(),
+            ecdsa_builtin_applications: val
+                .builtin_instance_counter
+                .get(SIGNATURE_BUILTIN_NAME)
+                .cloned(),
+            bitwise_builtin_applications: val
+                .builtin_instance_counter
+                .get(BITWISE_BUILTIN_NAME)
+                .cloned(),
+            keccak_builtin_applications: val
+                .builtin_instance_counter
+                .get(KECCAK_BUILTIN_NAME)
+                .cloned(),
+            segment_arena_builtin: val
+                .builtin_instance_counter
+                .get(SEGMENT_ARENA_BUILTIN_NAME)
+                .cloned(),
         }
     }
 }
@@ -262,7 +285,9 @@ impl FunctionInvocation {
     }
 }
 
+use crate::MemState;
 use blockifier::execution::call_info::CallInfo as BlockifierCallInfo;
+
 impl From<BlockifierCallInfo> for FunctionInvocation {
     fn from(val: BlockifierCallInfo) -> Self {
         FunctionInvocation {
@@ -327,7 +352,7 @@ impl From<OrderedL2ToL1Message> for OrderedMessage {
 pub struct Retdata(pub Vec<StarkFelt>);
 
 fn make_state_diff(
-    state: &mut TransactionalState<JunoStateReader>,
+    state: &mut TransactionalState<MemState>,
     deprecated_declared_class: Option<ClassHash>,
 ) -> Result<StateDiff, StateError> {
     let diff = state.to_state_diff();
