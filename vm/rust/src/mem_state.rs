@@ -147,7 +147,7 @@ impl State for MemState {
             *class_hash,
             CachedContractClass {
                 definition: contract_class,
-                cached_on_height: 0,
+                cached_on_height: self.height,
             },
         );
         Ok(())
