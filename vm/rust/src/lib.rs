@@ -2,16 +2,18 @@ pub mod jsonrpc;
 mod juno_state_reader;
 mod mem_state;
 
-use crate::juno_state_reader::{ptr_to_felt, JunoStateReader};
+use crate::juno_state_reader::ptr_to_felt;
 use std::{
     collections::HashMap,
-    ffi::{c_char, c_uchar, c_ulonglong, c_void, c_longlong, CStr, CString},
+    ffi::{c_char, c_longlong, c_uchar, c_ulonglong, c_void, CStr, CString},
     slice,
 };
 
 use blockifier::{
-    abi::constants::{INITIAL_GAS_COST, N_STEPS_RESOURCE, MAX_STEPS_PER_TX, MAX_VALIDATE_STEPS_PER_TX},
-    block_context::{BlockContext, GasPrices, FeeTokenAddresses},
+    abi::constants::{
+        INITIAL_GAS_COST, MAX_STEPS_PER_TX, MAX_VALIDATE_STEPS_PER_TX, N_STEPS_RESOURCE,
+    },
+    block_context::{BlockContext, FeeTokenAddresses, GasPrices},
     execution::{
         common_hints::ExecutionMode,
         contract_class::ContractClass,
@@ -20,14 +22,14 @@ use blockifier::{
     fee::fee_utils::calculate_tx_fee,
     state::cached_state::{CachedState, GlobalContractCache},
     transaction::{
-        objects::{AccountTransactionContext, DeprecatedAccountTransactionContext, HasRelatedFeeType},
+        errors::TransactionExecutionError::{
+            ContractConstructorExecutionFailed, ExecutionError, ValidateTransactionError,
+        },
+        objects::{
+            AccountTransactionContext, DeprecatedAccountTransactionContext, HasRelatedFeeType,
+        },
         transaction_execution::Transaction,
         transactions::ExecutableTransaction,
-        errors::TransactionExecutionError::{
-            ContractConstructorExecutionFailed,
-            ExecutionError,
-            ValidateTransactionError,
-        },
     },
 };
 use cairo_vm::vm::runners::builtin_runner::{
@@ -36,6 +38,7 @@ use cairo_vm::vm::runners::builtin_runner::{
     SEGMENT_ARENA_BUILTIN_NAME, SIGNATURE_BUILTIN_NAME,
 };
 use juno_state_reader::{contract_class_from_json_str, felt_to_byte_array};
+use mem_state::MemState;
 use serde::Deserialize;
 use starknet_api::transaction::{Calldata, Transaction as StarknetApiTransaction, TransactionHash};
 use starknet_api::{
@@ -71,7 +74,7 @@ pub extern "C" fn cairoVMCall(
     chain_id: *const c_char,
     max_steps: c_ulonglong,
 ) {
-    let reader = JunoStateReader::new(reader_handle, block_number);
+    let mem_state = MemState::new(block_number);
     let contract_addr_felt = ptr_to_felt(contract_address);
     let class_hash = if class_hash.is_null() {
         None
@@ -106,7 +109,7 @@ pub extern "C" fn cairoVMCall(
         eth_l1_gas_price: 1,
         strk_l1_gas_price: 1,
     };
-    let mut state = CachedState::new(reader, GlobalContractCache::default());
+    let mut state = CachedState::new(mem_state, GlobalContractCache::default());
     let mut resources = ExecutionResources::default();
     let context = EntryPointExecutionContext::new(
         &build_block_context(
@@ -161,7 +164,7 @@ pub extern "C" fn cairoVMExecute(
     gas_price_strk: *const c_uchar,
     legacy_json: c_uchar,
 ) {
-    let reader = JunoStateReader::new(reader_handle, block_number);
+    let mem_state = MemState::new(block_number);
     let chain_id_str = unsafe { CStr::from_ptr(chain_id) }.to_str().unwrap();
     let txn_json_str = unsafe { CStr::from_ptr(txns_json) }.to_str().unwrap();
     let txns_and_query_bits: Result<Vec<TxnAndQueryBit>, serde_json::Error> =
@@ -207,9 +210,9 @@ pub extern "C" fn cairoVMExecute(
             eth_l1_gas_price: felt_to_u128(gas_price_wei_felt),
             strk_l1_gas_price: felt_to_u128(gas_price_strk_felt),
         },
-        None
+        None,
     );
-    let mut state = CachedState::new(reader, GlobalContractCache::default());
+    let mut state = CachedState::new(mem_state, GlobalContractCache::default());
     let charge_fee = skip_charge_fee == 0;
     let validate = skip_validate == 0;
 
@@ -274,19 +277,18 @@ pub extern "C" fn cairoVMExecute(
             Err(error) => {
                 let err_string = match &error {
                     ContractConstructorExecutionFailed(e)
-                        | ExecutionError(e)
-                        | ValidateTransactionError(e) => format!("{error} {e}"),
-                    other => other.to_string()
+                    | ExecutionError(e)
+                    | ValidateTransactionError(e) => format!("{error} {e}"),
+                    other => other.to_string(),
                 };
                 report_error(
                     reader_handle,
                     format!(
                         "failed txn {} reason: {}",
-                        txn_and_query_bit.txn_hash,
-                        err_string,
+                        txn_and_query_bit.txn_hash, err_string,
                     )
                     .as_str(),
-                    txn_index as i64
+                    txn_index as i64,
                 );
                 return;
             }
@@ -294,16 +296,16 @@ pub extern "C" fn cairoVMExecute(
                 if t.is_reverted() && err_on_revert != 0 {
                     report_error(
                         reader_handle,
-                        format!("reverted: {}", t.revert_error.unwrap())
-                        .as_str(),
-                        txn_index as i64
+                        format!("reverted: {}", t.revert_error.unwrap()).as_str(),
+                        txn_index as i64,
                     );
                     return;
                 }
 
                 // we are estimating fee, override actual fee calculation
                 if !charge_fee {
-                    t.actual_fee = calculate_tx_fee(&t.actual_resources, &block_context, &fee_type).unwrap();
+                    t.actual_fee =
+                        calculate_tx_fee(&t.actual_resources, &block_context, &fee_type).unwrap();
                 }
 
                 let actual_fee = t.actual_fee.0.into();
@@ -317,7 +319,7 @@ pub extern "C" fn cairoVMExecute(
                             trace.err().unwrap()
                         )
                         .as_str(),
-                        txn_index as i64
+                        txn_index as i64,
                     );
                     return;
                 }
@@ -411,8 +413,20 @@ fn build_block_context(
         // https://github.com/starknet-io/starknet-addresses/blob/df19b17d2c83f11c30e65e2373e8a0c65446f17c/bridged_tokens/mainnet.json
         fee_token_addresses: FeeTokenAddresses {
             // both addresses are the same for all networks
-            eth_fee_token_address: ContractAddress::try_from(StarkHash::try_from("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7").unwrap()).unwrap(),
-            strk_fee_token_address: ContractAddress::try_from(StarkHash::try_from("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d").unwrap()).unwrap(),
+            eth_fee_token_address: ContractAddress::try_from(
+                StarkHash::try_from(
+                    "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+            strk_fee_token_address: ContractAddress::try_from(
+                StarkHash::try_from(
+                    "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+                )
+                .unwrap(),
+            )
+            .unwrap(),
         },
         gas_prices, // fixed gas price, so that we can return "consumed gas" to Go side
         vm_resource_fee_cost: HashMap::from([
@@ -437,7 +451,10 @@ fn build_block_context(
             (KECCAK_BUILTIN_NAME.to_string(), N_STEPS_FEE_WEIGHT * 2048.0),
         ])
         .into(),
-        invoke_tx_max_n_steps: max_steps.unwrap_or(MAX_STEPS_PER_TX as u64).try_into().unwrap(),
+        invoke_tx_max_n_steps: max_steps
+            .unwrap_or(MAX_STEPS_PER_TX as u64)
+            .try_into()
+            .unwrap(),
         validate_max_n_steps: MAX_VALIDATE_STEPS_PER_TX as u32,
         max_recursion_depth: 50,
     }
