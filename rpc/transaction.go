@@ -361,11 +361,11 @@ type TransactionReceipt struct {
 type FeePayment struct {
 	Amount   *felt.Felt `json:"amount"`
 	Unit     FeeUnit    `json:"unit"`
-	isLegacy bool
+	IsLegacy bool
 }
 
 func (f *FeePayment) MarshalJSON() ([]byte, error) {
-	if f.isLegacy {
+	if f.IsLegacy {
 		return json.Marshal(f.Amount)
 	}
 	type fee FeePayment // Avoid infinite recursion with MarshalJSON.
