@@ -310,11 +310,11 @@ type ExecutionResources struct {
 	Keccak       uint64 `json:"keccak_builtin_applications,omitempty"`
 	Poseidon     uint64 `json:"poseidon_builtin_applications,omitempty"`
 	SegmentArena uint64 `json:"segment_arena_builtin,omitempty"`
-	isLegacy     bool
+	IsLegacy     bool
 }
 
 func (r *ExecutionResources) MarshalJSON() ([]byte, error) {
-	if r.isLegacy {
+	if r.IsLegacy {
 		return json.Marshal(struct {
 			Steps       NumAsHex `json:"steps"`
 			MemoryHoles NumAsHex `json:"memory_holes"`

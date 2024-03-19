@@ -693,7 +693,7 @@ func (h *Handler) LegacyTransactionReceiptByHash(hash felt.Felt) (*TransactionRe
 		return nil, rpcErr
 	}
 	receipt.ActualFee.IsLegacy = true
-	receipt.ExecutionResources.isLegacy = true
+	receipt.ExecutionResources.IsLegacy = true
 	return receipt, nil
 }
 
