@@ -361,7 +361,7 @@ type TransactionReceipt struct {
 type FeePayment struct {
 	Amount   *felt.Felt `json:"amount"`
 	Unit     FeeUnit    `json:"unit"`
-	IsLegacy bool
+	IsLegacy bool       `json:"-"`
 }
 
 func (f *FeePayment) MarshalJSON() ([]byte, error) {
